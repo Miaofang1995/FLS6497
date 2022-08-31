@@ -1,0 +1,193 @@
+---
+title: "aula 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# install.packages("mlr3")
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
+
+```
+
+```{r}
+link <- "https://raw.githubusercontent.com/jacobwright32/Web_Scraper_AI_Core_Project/bb4865ae568e23ab8fadb6ea58cf117df2164ef3/web%20scraping/Cleaned%20Data/Brazil_Sao%20Bernardo%20Do%20Campo_Cleaned.csv"
+
+dados <- readr::read_csv(link)
+```
+
+# 1. MODEL
+
+## a). graph for cloud covereage & maximum temperature
+
+The graph shows that there is a negative linear correlation between the cloud coverage and maximum tempurature.
+
+```{r,results='asis'}
+grafico1 <- dados %>%  
+  ggplot() + 
+  geom_point(aes(x=maximum_temprature, y=cloud_coverage), size=1) +  
+  geom_smooth(aes(x = maximum_temprature, y = cloud_coverage), method = "lm", se = FALSE)
+
+
+
+ggsave(grafico1, file = paste0("grafico1.png"))
+```
+
+
+
+## b). other variable that has larger correlation with maximum temperature
+
+
+scatter plots:
+```{r}
+grafico2 <-dados %>% select_if(is.numeric) %>% pivot_longer(-maximum_temprature, names_to = "name", values_to = "value") %>% ggplot(aes(x = maximum_temprature, y = value)) + geom_point() + geom_smooth(method = "lm", se = F) + facet_wrap(~name,scale = "free") 
+
+ggsave(file = paste0("grafico2.png"))
+```
+
+
+## c). Save graphs
+
+## d). Models
+
+Rode modelos lineares simples (por mínimos quadrados ordinários) para predizer a temperatura máxima diária em São Bernardo do Campo (SP). Use as variáveis que quiser, faça transformações nelas se necessário, e reporte alguns resultados do melhor modelo que encontrar.
+
+```{r}
+# define the model 
+
+modelo <- lm(maximum_temprature ~  humidity + cloud_coverage +minimum_temprature  + pressure, data = dados)
+```
+
+
+
+## e).Comparison 
+
+Salve as predições do seu modelo treinado no exercício anterior e compare com os valores reais de temperatura máxima (vale usar gráficos).
+```{r}
+#  prediction of temperature using the model 
+dados$predicao <- predict(modelo)
+
+# compare the prediction with real temperature in a graph 
+dados %>% select(date, maximum_temprature, predicao) %>% 
+  pivot_longer(-date) %>% 
+  ggplot(aes(x = date, y = value, color = name)) + geom_line()
+
+
+dados %>% arrange(maximum_temprature) %>% 
+  mutate(id = 1:n()) %>% 
+  select(maximum_temprature, predicao, id) %>% 
+  pivot_longer(-id ) %>% 
+  mutate(name = fct_relevel(name, "predicao")) %>% #relevel factor, set "predicao" as label 1 so that it will 
+                                                    # not overlap with another variable 
+  ggplot(aes(x = id, y = value, color = name)) + geom_line()
+ 
+```
+
+
+
+# 2. RANDOM SELECTION
+
+## a). Humidity
+
+Crie uma função (ou um código) para sortear 1000 observações do banco de dados climáticos, calcular a média de umidade (humidity).
+
+```{r}
+#  function for random selection (1000 obs) 
+sorteio <- function(x){ 
+
+  dados %>% sample_n(1000) %>% summarize(humidity_mean=mean(humidity)) %>% pluck("humidity_mean")
+  
+} 
+
+# mean of humidity
+
+sorteio()
+
+```
+
+
+ 
+## b). Histogram
+
+
+Com a função criada anteriormente, calcule 1000 médias de amostras de humidity e plote a distribuição como um histograma.
+```{r} 
+
+mean_humidity <- replicate(n=1000, sorteio()) 
+mean_humidity <- data.frame(mean_humidity)
+mean_humidity %>% ggplot() + geom_histogram(aes(mean_humidity))
+```
+
+
+## c). linear models
+
+Modifique a função criada anteriormente para, depois de sortear 1000 observações do banco, rodar um modelo de regressão linear para predizer valores de humidity e extrair o r2 do modelo.
+
+```{r}
+predizer <- function(x){ 
+
+  dados %>% sample_n(1000) %>% lm (humidity ~ cloud_coverage +minimum_temprature  + pressure, data = .) %>% summary() %>% pluck("r.squared")
+  
+} 
+
+predizer()
+```
+
+
+# 3) FRAMEWORKS
+
+Ainda usando a base carregada anteriormente, use um framework para estimar um modelo de regressão tendo humidity como target.
+
+```{r}
+library("mlr3")
+task = tsk("iris")
+learner = lrn("classif.rpart")
+
+learner$train(task, row_ids = 1:120)
+learner$model
+```
+
+
+```{r}
+dados1 <- dados %>% select("cloud_coverage", "minimum_temprature" , "pressure","humidity" )
+
+# create task for regression 
+
+task_humidity = as_task_regr(dados1, target = "humidity")
+print(task_humidity)
+
+## plot to see the detail of data
+
+library("mlr3viz")
+autoplot(task_humidity, type = "pairs")
+
+# check all kinds of pre-defined task
+as.data.table(mlr_tasks)
+
+
+head(task_humidity$row_ids)
+
+# The data contained in a task can be accessed through $data()
+task_humidity$data()
+
+
+# choose learner 
+learner = lrn("regr.rpart")
+
+# train
+learner$train(task_humidity, row_ids = 1:3000)
+learner$model
+
+# predict
+predictions = learner$predict(task_humidity, row_ids = 3001:4565)
+predictions
+
+# check accuracy 
+predictions$score(msr("regr.rpart"))
+```
+
